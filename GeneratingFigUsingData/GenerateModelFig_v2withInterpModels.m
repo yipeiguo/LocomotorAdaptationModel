@@ -1,8 +1,13 @@
 % This is a script for generating figure comparing results from run and
 % turn simulations with experimental data..
 
+% In this v2, we include the possiblility of including multiple
+% interpolated data, and also have a panel exploring the effect of
+% interpolation parameter (relaxation rate towards the final distributions)
+
 close all; clear variables;
 addpath('../simulationCode_revised/.')
+
 datapathname = './';
 
 %% upload/generate data
@@ -35,6 +40,28 @@ for datatypeIndx = 1:numDataTypes
     runProps_all{datatypeIndx} = runProps;
     turnProps_all{datatypeIndx} = turnProps;
 end
+
+% Extract interpolated models
+interpFolderName = 'SimData_0-125M_24hr_interpType_exponential_numtrials10000';
+interpFuncType = 'exponential';
+% Extract foldernames in main folder
+d = dir(strcat(datapathname,interpFolderName));
+isub = [d(:).isdir]; %# returns logical vector
+nameFolds = {d(isub).name}';
+nameFolds(ismember(nameFolds,{'.','..'})) = [];
+
+% Extract values of alpha parameter from foldernames
+numalphaVals = length(nameFolds);
+alphascan = zeros(1,numalphaVals);
+for alphaIndx = 1:numalphaVals
+    fn = nameFolds{alphaIndx};
+    fn = strrep(fn,'pt','.');
+    alphascan(alphaIndx) = str2double(erase(fn,'alpha'));
+end
+% get run and turn properties for these interpolated models
+datatypes_initfinal = {'veryShortTrips','shortTrips_withDistDependence'};
+[runProps_interpsets, turnProps_interpsets, ~, ~, interpFuncs_cell, interpFunc_pCW_cell] = ...
+    GetSegProps_interpolated(condOI, datatypes_initfinal, interpFuncType, alphascan);
 
 
 % Relationships between parameters of a distribution and statistical
@@ -75,6 +102,12 @@ for datatypeIndx = 1:numDataTypes
     foldername = strcat(datapathname,'SimData','_',condOI,'_',datatype,'_numtrials',num2str(10000));
     meanPreturnSim_all{datatypeIndx} = load(strcat(foldername,'/PreturnVSmaxdisp_numbins100.csv'));
 end
+meanPreturnSim_interpsets = cell(1,numalphaVals);
+for alphaIndx = 1:numalphaVals
+    fn_currset = nameFolds{alphaIndx};
+    foldername = strcat(datapathname,interpFolderName,'/',fn_currset);
+    meanPreturnSim_interpsets{alphaIndx} = load(strcat(foldername,'/PreturnVSmaxdisp_numbins100.csv'));
+end
 
 
 % Experimental data for distributions of trip properties
@@ -103,7 +136,28 @@ for datatypeIndx = 1:numDataTypes
         tripProp_simdata{datatypeIndx,propIndx} = load(strcat(foldername,'/',tripProp,'.csv'));
     end
 end
+tripProp_interpsets = cell(numalphaVals,numTripProps);
+for alphaIndx = 1:numalphaVals
+    fn_currset = nameFolds{alphaIndx};
+    foldername = strcat(datapathname,interpFolderName,'/',fn_currset);
+    for propIndx = 1:numTripProps
+        tripProp = tripPropNames_sim{propIndx};
+        tripProp_interpsets{alphaIndx,propIndx} = load(strcat(foldername,'/',tripProp,'.csv'));
+    end
+end
 
+% Import other data for comparing between interpolation models
+distComparisonMat = zeros(numalphaVals,numTripProps,2);
+for alphaIndx = 1:numalphaVals
+    fn_currset = nameFolds{alphaIndx};
+    foldername = strcat(datapathname,interpFolderName,'/',fn_currset);
+    tablecomparison = readtable(strcat(foldername,'/SimExptComparison.csv'));
+    varNames = tablecomparison.Properties.VariableNames;
+    for propIndx = 1:numTripProps
+        varName = varNames{propIndx+1};
+        distComparisonMat(alphaIndx,propIndx,:) = tablecomparison{:,varName};
+    end
+end
 
 %% Plotting
 close all;
@@ -129,7 +183,7 @@ x1 = 1.1;
 x2 = x1 + plotw + 0.9;
 x3 = x2 + plotw + 0.9;
 x4 = x3 + plotw + 0.9;
-y1 = 10.5;
+y1 = 10.2;
 y2 = 5.6;
 y3 = 0.9;
 % y1 = 0.9;
@@ -146,54 +200,149 @@ color_data = [0.5 0.7 1];
 %     0.7173    0.6342    0.9671];
 colormat_datatype = [0.8452    0.0302    0.2537; ...
     0.3693    0.0173    0.6176; ...
-    0.4774    0.2772    0.2644];
+    0.4774    0.2772    0.2644; ...
+    0.1560    0.8016    0.1235];
+colormat_interpsets = summer(ceil(numalphaVals*1.2));
+% colormat_opt = [0.1560    0.8016    0.1235];
 
-% (a) schematic to be drawn in powerpoint
+numbinsVec_data = [20,20,20];
+numbinsVec_sim = [30,50,30];
+ifSimFollowDatabin = true;
+xminVec = [0,-1,0];
+xmaxVec = [4,4,2];
+ymaxVec = [2,2,4];
+xlabelNames = {'log_{10}(# segments)','log_{10}(distance)','log_{10}(max disp)'};
 
-% (b) Distributions of log10(runlengths), turn angles, log10(rad)
-xbvec = [x2,x3,x4];
-datacell = {data_log10RL,data_turnangles,data_log10rad};
-numpts = 1e3;
-xscan_cell = cell(1,3);
-for qIndx = 1:3
-    dataVec = datacell{qIndx};
-    xmin = min(dataVec); xmax = max(dataVec);
-    xscan = linspace(xmin,xmax,numpts);
-    xscan_cell{qIndx} = xscan;
+% (a) how agreement with data varies with alpha
+axes('Units','Centimeters','Position',[x1, y1, plotw, plotw]);
+tripPropIndxOI = 2;
+metricIndxOI = 1;
+% extract optimal value of alpha
+if metricIndxOI == 1
+    [~,optalphaIndx] = min(distComparisonMat(:,tripPropIndxOI,metricIndxOI));
+elseif metricIndxOI == 2
+    [~,optalphaIndx] = max(distComparisonMat(:,tripPropIndxOI,metricIndxOI));
 end
-pdfscan_cell = cell(1,3);
-% PDF for log10(RL)
-pdfscan_cell{1} = skewnormal(xscan_cell{1},fittedparamsMat(1,1),...
-    fittedparamsMat(1,2),fittedparamsMat(1,3));
-% PDF for turnangles
-mu = lognormal_muFunc(fittedparamsMat(2,1),fittedparamsMat(2,2),fittedparamsMat(2,3));
-sigma = fittedparamsMat(2,1);
-loc = fittedparamsMat(2,2);
-Pturnangle_obj = makedist('Lognormal','mu',mu,'sigma',sigma);
-Pturnangle_obj = truncate(Pturnangle_obj,-loc,2*pi-loc);
-pdfscan_cell{2} = pdf(Pturnangle_obj,xscan_cell{2}-loc);
-% PDF for effective radius of curvature
-pdfscan_cell{3} = genlogisticPDF(xscan_cell{3},fittedparamsMat(3,1),...
-    fittedparamsMat(3,2),fittedparamsMat(3,3));
-xlabelposfactor = [0.1,0.23,0.2];
-for qIndx = 1:3
-    axes('Units','Centimeters','Position',[xbvec(qIndx), y1, plotw, plotw]);
-    dataVec = datacell{qIndx};
-    histogram(dataVec,'Normalization','pdf','FaceColor',color_data,'EdgeColor', color_data);
+colormat_opt = colormat_interpsets(optalphaIndx,:);
+colormat_datatype(4,:) = colormat_opt;
+[KLdiv_veryshort, overlapFrac_veryshort] = CompareSimWithData(log10(tripProp_simdata{3,tripPropIndxOI}),...
+        reshape(log10(tripPropDataCell{tripPropIndxOI}),1,[]),numbinsVec_data(tripPropIndxOI));
+comparisonVec_veryshort = [KLdiv_veryshort, overlapFrac_veryshort];
+[KLdiv_short, overlapFrac_short] = CompareSimWithData(log10(tripProp_simdata{2,tripPropIndxOI}),...
+        reshape(log10(tripPropDataCell{tripPropIndxOI}),1,[]),numbinsVec_data(tripPropIndxOI));
+comparisonVec_short = [KLdiv_short, overlapFrac_short];
+plot(alphascan,distComparisonMat(:,tripPropIndxOI,metricIndxOI),'k-');
+hold on
+scatter(alphascan,distComparisonMat(:,tripPropIndxOI,metricIndxOI),...
+    [],colormat_interpsets(1:numalphaVals,:),'o','filled');
+hold on
+scatter(alphascan(optalphaIndx),distComparisonMat(optalphaIndx,tripPropIndxOI,metricIndxOI),...
+    [],colormat_opt);
+% yline(comparisonVec_veryshort(metricIndxOI),'color',colormat_datatype(3,:));
+% hold on
+% yline(comparisonVec_short(metricIndxOI),'color',colormat_datatype(2,:));
+minx = 0; maxx = 0.04;
+miny = 0.8; maxy = 2;
+xlim([minx maxx]);
+ylim([miny maxy]);
+text(0.45*(maxx-minx)+minx,-0.15*(maxy-miny)+miny,'\alpha','FontSize',labelfontsize);
+text(-0.2*(maxx-minx)+minx,1.07*(maxy-miny)+miny,'KLdiv','FontSize',labelfontsize);
+
+axes('Units','Centimeters','Position',[x2, y1, plotw, plotw]);
+plot(alphascan,distComparisonMat(:,tripPropIndxOI,metricIndxOI),'x-');
+hold on
+scatter(alphascan,distComparisonMat(:,tripPropIndxOI,metricIndxOI),...
+    [],colormat_interpsets(1:numalphaVals,:),'o','filled');
+hold on
+% scatter(alphascan(optalphaIndx),distComparisonMat(optalphaIndx,tripPropIndxOI,metricIndxOI),...
+%     [],colormat_opt);
+hold on
+yline(comparisonVec_veryshort(metricIndxOI),'color',colormat_datatype(3,:),'LineWidth',1);
+hold on
+yline(comparisonVec_short(metricIndxOI),'color',colormat_datatype(2,:),'LineWidth',1);
+minx = 0; maxx = 0.04;
+miny = 0.8; maxy = 4;
+xlim([minx maxx]);
+ylim([miny maxy]);
+text(0.45*(maxx-minx)+minx,-0.15*(maxy-miny)+miny,'\alpha','FontSize',labelfontsize);
+text(-0.2*(maxx-minx)+minx,1.07*(maxy-miny)+miny,'KLdiv','FontSize',labelfontsize);
+
+% (bi) show how Preturn and P(totdist) vary with alpha
+axes('Units','Centimeters','Position',[x3, y1, plotw, plotw]);
+errorbar(log10(maxDispThresVec_data),medianPreturnData,negVec,posVec,...
+    'LineStyle','none','marker','o','markerFaceColor',color_data,...
+    'markerEdgeColor',color_data,'MarkerSize',4,'color',color_data);
+hold on
+for alphaIndx = 1:numalphaVals
+    meanPreturnMat = meanPreturnSim_interpsets{alphaIndx};
+    plot(log10(meanPreturnMat(1,:)),meanPreturnMat(2,:),...
+        'color',colormat_interpsets(alphaIndx,:),'LineWidth',1);    
     hold on
-    xscan = xscan_cell{qIndx};
-    plot(xscan,pdfscan_cell{qIndx},'LineWidth',1,'Color',colormat_datatype(2,:));
-    minx = min(xscan); maxx = max(xscan);
-    miny = 0; maxy = max(pdfscan_cell{qIndx}) + 0.1;
-    xlim([minx maxx]);
-    ylim([miny maxy]);
-    % set(gca,'XTick',[floor(minx),ceil(maxx)]); 
-    set(gca,'YTick',[]); 
-    % set(gca, 'box', 'off')
-    text(xlabelposfactor(qIndx)*(maxx-minx)+minx,-0.2*(maxy-miny)+miny,...
-        qNames{qIndx},'FontSize',labelfontsize);
-    text(-0.1*(maxx-minx)+minx,0.9*(maxy-miny)+miny,'P','FontSize',labelfontsize);
 end
+minx = 0; maxx = 2;
+miny = 0; maxy = 1;
+xlim([minx maxx]);
+ylim([miny maxy]);
+set(gca,'XTick',[minx maxx]); 
+set(gca,'YTick',miny:0.5:maxy); 
+% set(gca, 'box', 'off')
+text(0.1*(maxx-minx)+minx,-0.15*(maxy-miny)+miny,'log_{10}(max disp)','FontSize',labelfontsize);
+text(-0.1*(maxx-minx)+minx,1.1*(maxy-miny)+miny,'P(return)','FontSize',labelfontsize);
+
+% (bii) show how P(log10dist) vary with alpha
+axes('Units','Centimeters','Position',[x4, y1, plotw, plotw]);
+% experimental data:
+datavec = tripPropDataCell{tripPropIndxOI};
+if ifdatalogged == true
+    h = histogram(datavec,numbinsVec_data(tripPropIndxOI),'FaceAlpha',0.5,...
+        'Normalization','pdf','FaceColor',color_data,'EdgeColor', color_data);
+else
+    h = histogram(log10(datavec),numbinsVec_data(tripPropIndxOI),'FaceAlpha',0.5,...
+        'Normalization','pdf','FaceColor',color_data,'EdgeColor', color_data);
+end
+binEdges = h.BinEdges;
+binWidth = h.BinWidth;
+hold on
+for alphaIndx = 1:numalphaVals
+    simdatavec = log10(tripProp_interpsets{alphaIndx,tripPropIndxOI});
+    datamin = min(simdatavec);
+    datamax = max(simdatavec);
+    if ifSimFollowDatabin == true
+        if datamin < binEdges(1)
+            numexcessbins_lower = ceil((binEdges(1)-datamin)/binWidth);
+        else
+            numexcessbins_lower = 0;
+        end
+        if datamax > binEdges(end)
+            numexcessbins_upper = ceil((datamax-binEdges(end))/binWidth);
+        else
+            numexcessbins_upper = 0;
+        end
+        binEdges_new = [binEdges(1) - (numexcessbins_lower:-1:1).*binWidth,...
+            binEdges,binEdges(end) + (1:1:numexcessbins_upper).*binWidth];
+    else
+        binEdges_new = linspace(datamin,datamax,numbinsVec_sim(tripPropIndxOI)+1);
+        binWidth = binEdges_new(2)-binEdges_new(1);
+    end
+    Ncounts = histcounts(simdatavec,binEdges_new);
+    pdfVec = Ncounts./sum(Ncounts)/binWidth;
+    binmid_new = (binEdges_new(1:end-1)+binEdges_new(2:end))./2;
+    plot(binmid_new,pdfVec,'color',colormat_interpsets(alphaIndx,:),'LineWidth',1);
+    % histogram(log10(simdatavec),50,'Normalization','pdf',...
+    %     'FaceColor',colormat_datatype(datatypeIndx,:));
+    hold on
+end
+minx = xminVec(tripPropIndxOI); maxx = xmaxVec(tripPropIndxOI);
+miny = 0; maxy = 1; %ymaxVec(tripPropIndxOI);
+xlim([minx maxx]);
+ylim([miny maxy]);
+set(gca,'XTick',minx:1:maxx); 
+set(gca,'YTick',[miny maxy]); 
+% set(gca, 'box', 'off')
+text(0.1*(maxx-minx)+minx,-0.18*(maxy-miny)+miny,xlabelNames{tripPropIndxOI},...
+    'FontSize',labelfontsize);
+text(-0.1*(maxx-minx)+minx,0.9*(maxy-miny)+miny,'P','FontSize',labelfontsize);
+
 
 
 % (c) How mean of segment properties vary with distance from food 
@@ -236,6 +385,18 @@ for datatypeIndx = 1:numDataTypes
     end
     hold on    
 end
+% Interpolated model with optimal value of alpha
+runProps = runProps_interpsets{optalphaIndx};
+ascan = runProps.Plog10RL_aFunc(tscan);
+locscan = runProps.Plog10RL_locFunc(tscan);
+scalescan = runProps.Plog10RL_scaleFunc(tscan);
+meanlog10RLscan = skewnorm_meanFunc(ascan,locscan,scalescan).*ones(1,length(tscan));
+if iflogx == false
+    plot(tscan,meanlog10RLscan,'color',colormat_opt,'LineWidth',1);
+else
+    plot(log10(tscan),meanlog10RLscan,'color',colormat_opt,'LineWidth',1);
+end
+hold on    
 miny = -0.3; maxy = 0.6;
 xlim([minx maxx]);
 ylim([miny maxy]);
@@ -244,7 +405,7 @@ text(xposFactor*(maxx-minx)+minx,yposFactor*(maxy-miny)+miny,xlabel,'FontSize',l
 set(gca,'YTick',(miny:0.2:maxy)); 
 % set(gca, 'box', 'off')
 text(-0.0*(maxx-minx)+minx,1.1*(maxy-miny)+miny,'\langle log_{10}(run length) \rangle','FontSize',labelfontsize);
-[lgdC1,lgdC1object] = legend({'all trips','all short trips','very short trips'});
+[lgdC1,lgdC1object] = legend({'all trips','all short trips','very short trips','interpolated'});
 lgdC1.Units = 'centimeters';
 if iflogx == false
     % text(0.35*(maxx-minx)+minx,0.2*(maxy-miny)+miny,'(40% of short trips)','FontSize',7);
@@ -259,7 +420,7 @@ lgdC1.Position = pos;
 lgdC1.FontUnits = 'centimeters';
 lgdC1.FontSize = 8;
 lgdC1.Box = 'off';
-numlines = 3; % number of lines in legend
+numlines = numDataTypes+1; % number of lines in legend
 originalLegLineC1 = get(lgdC1object(numlines+1),'xdata');
 leglinelengthC = originalLegLineC1(2)-originalLegLineC1(1);
 for kk = 0:numlines-1
@@ -283,7 +444,18 @@ for datatypeIndx = 1:numDataTypes
     end
     hold on    
 end
-
+% Interpolated model with optimal value of alpha
+turnProps = turnProps_interpsets{optalphaIndx};
+muscan = turnProps.Pturnangle_muFunc(tscan);
+sigmascan = turnProps.Pturnangle_sigmaFunc(tscan);
+locscan = turnProps.Pturnangle_locFunc(tscan);
+meanturnanglescan = lognormal_meanFunc(muscan,sigmascan,locscan).*ones(1,length(tscan));
+if iflogx == false
+    plot(tscan,meanturnanglescan,'color',colormat_opt,'LineWidth',1);
+else
+    plot(log10(tscan),meanturnanglescan,'color',colormat_opt,'LineWidth',1);
+end
+hold on    
 miny = 0.4; maxy = 1.8;
 xlim([minx maxx]);
 ylim([miny maxy]);
@@ -308,6 +480,18 @@ for datatypeIndx = 1:numDataTypes
     end
     hold on    
 end
+% Interpolated model with optimal value of alpha
+turnProps = turnProps_interpsets{optalphaIndx};
+ascan = turnProps.Plog10rad_aFunc(tscan);
+scalescan = turnProps.Plog10rad_scaleFunc(tscan);
+locscan = turnProps.Plog10rad_locFunc(tscan);
+meanlog10radscan = genlogistic_meanFunc(ascan,locscan,scalescan).*ones(1,length(tscan));   
+if iflogx == false
+    plot(tscan,meanlog10radscan,'color',colormat_opt,'LineWidth',1);
+else
+    plot(log10(tscan),meanlog10radscan,'color',colormat_opt,'LineWidth',1);
+end
+hold on    
 miny = 0.; maxy = 0.8;
 xlim([minx maxx]);
 ylim([miny maxy]);
@@ -329,6 +513,15 @@ for datatypeIndx = 1:numDataTypes
     end
     hold on    
 end
+% Interpolated model with optimal value of alpha
+turnProps = turnProps_interpsets{optalphaIndx};
+pCWscan = turnProps.pCWfunc(tscan).*ones(1,length(tscan));  
+if iflogx == false
+    plot(tscan,pCWscan,'color',colormat_opt,'LineWidth',1);
+else
+    plot(log10(tscan),pCWscan,'color',colormat_opt,'LineWidth',1);
+end
+hold on    
 miny = 0.5; maxy = 1;
 xlim([minx maxx]);
 ylim([miny maxy]);
@@ -351,6 +544,10 @@ for datatypeIndx = 1:numDataTypes
         'color',colormat_datatype(datatypeIndx,:),'LineWidth',1);
     hold on
 end
+% Interpolated model with optimal value of alpha
+meanPreturnMat = meanPreturnSim_interpsets{optalphaIndx};
+plot(log10(meanPreturnMat(1,:)),meanPreturnMat(2,:),...
+    'color',colormat_opt,'LineWidth',1);    
 minx = 0; maxx = 2;
 miny = 0; maxy = 1;
 xlim([minx maxx]);
@@ -363,15 +560,6 @@ text(-0.1*(maxx-minx)+minx,1.1*(maxy-miny)+miny,'P(return)','FontSize',labelfont
 
 % (e) compare trip properties between data and simulations
 xEvec = [x2,x3,x4];
-xlabelNames = {'log_{10}(# segments)','log_{10}(distance)','log_{10}(max disp)'};
-datatypeInds2compare = [1,2,3];
-numdatatypes2compare = length(datatypeInds2compare);
-xminVec = [0,-1,0];
-xmaxVec = [4,4,2];
-ymaxVec = [2,2,4];
-numbinsVec_data = [20,20,20];
-numbinsVec_sim = [30,50,30];
-ifSimFollowDatabin = true;
 for tripPropIndx = 1:numTripProps
     axes('Units','Centimeters','Position',[xEvec(tripPropIndx), y3, plotw, plotw]);
     % experimental data:
@@ -386,9 +574,12 @@ for tripPropIndx = 1:numTripProps
     binEdges = h.BinEdges;
     binWidth = h.BinWidth;
     hold on
-    for kk = 1:numdatatypes2compare
-        datatypeIndx = datatypeInds2compare(kk);
-        simdatavec = log10(tripProp_simdata{datatypeIndx,tripPropIndx});
+    for datatypeIndx = 1:numDataTypes + 1
+        if datatypeIndx <= numDataTypes
+            simdatavec = log10(tripProp_simdata{datatypeIndx,tripPropIndx});
+        else
+            simdatavec = log10(tripProp_interpsets{optalphaIndx,tripPropIndx});
+        end
         datamin = min(simdatavec);
         datamax = max(simdatavec);
         if ifSimFollowDatabin == true
@@ -431,7 +622,7 @@ end
 
 
 %% Save Figure
-% fname = sprintf('Fig_simVSdata');
+% fname = sprintf('Fig_simVSdata_withInterpDist');
 % % print(gcf,[fname '.pdf'],'-dpdf','-r300');  
 % % print(gcf,[fname '.png'],'-dpng','-r300');   
 % saveas(gcf,fname,'epsc');
