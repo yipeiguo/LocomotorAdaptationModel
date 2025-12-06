@@ -129,6 +129,49 @@ titlename = condOI;
 VisualizeTrajectories_withCurvedSegs(posTrajsOI, segArcPropsOI,...
     initsegTypeOI,eps,numstepsOI,radius_arena,ifhitwallOI,titlename);
 
+%% For different maximum displacement ranges, visualize trajectory with the 
+% median total distance 
+log10maxdisp_OI = [0.4,0.8,1.2,1.6,1.8,1.85];
+maxdisp_eps = 0.05;
+maxdispOI_min = 10.^(log10maxdisp_OI-maxdisp_eps);
+maxdispOI_max = 10.^(log10maxdisp_OI+maxdisp_eps);
+
+numMaxDispOI = length(log10maxdisp_OI);
+trialsRel = zeros(1,numMaxDispOI);
+numPosTrials = zeros(1,numMaxDispOI);
+subplotTitles = cell(1,numMaxDispOI);
+% select trials:
+for kk = 1:numMaxDispOI
+    maxdisp_min = maxdispOI_min(kk);
+    maxdisp_max = maxdispOI_max(kk);
+    postrials = find((maxdispVec>maxdisp_min) & (maxdispVec<maxdisp_max));
+    if ~isempty(postrials)
+        totdist_pos = totdistVec(postrials);
+        [~, idx] = min(abs(totdist_pos-median(totdist_pos)));
+        trialsRel(kk) = postrials(idx);
+        numPosTrials(kk) = length(postrials);
+    else
+        [~, idx] = min(abs(totdistVec-10.^log10maxdisp_OI(kk)));
+        numPosTrials(kk) = 1;
+        trialsRel(kk) = idx;
+    end
+    subplotTitles{kk} = strcat('log10(maxdisp) = ',num2str(log10maxdisp_OI(kk)));
+end
+
+% plot
+posTrajsRel = posTrajs(:,:,trialsRel);
+numstepsRel = numstepsVec(trialsRel);
+ifhitwallRel = ifhitwallVec(trialsRel);
+initsegTypeRel = initsegTypeVec(trialsRel);
+segArcPropsRel = segArcProps_cell(trialsRel,:);
+
+titlename = datatype;
+ifplotarena = true;
+VisualizeTrajectories_withCurvedSegs(posTrajsRel, segArcPropsRel,...
+    initsegTypeRel,eps,numstepsRel,radius_arena,ifhitwallRel,titlename,...
+    ifplotarena, subplotTitles);
+
+
 %% Plot distribution of trip-level properties
 qMat_cell = {totdistVec,totdistVec_loop,maxdispVec,maxdispVec_loop,...
     numstepsVec,numstepsVec_loop};

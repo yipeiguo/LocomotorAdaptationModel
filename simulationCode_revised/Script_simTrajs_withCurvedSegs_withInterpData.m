@@ -15,7 +15,7 @@
 close all;
 clear variables;
 rng('shuffle');
-
+datapathname = './GeneratingFigUsingData/';
 
 % How mean and variance of log10(rad) depends on these parameters
 genlogistic_meanFunc = @(a,loc,scale) scale.*(psi(a)-psi(1)) + loc;
@@ -37,7 +37,7 @@ for propIndx = 1:numTripProps
     else
         fn = strcat(tripProp,'_FlyData_0-125M_24hr');
     end
-    data_imported = load(strcat('../figures/',fn,'.csv'));
+    data_imported = load(strcat(datapathname,fn,'.csv'));
     if ifdatalogged == true
         tripPropDataCell{propIndx} = data_imported;
     else
@@ -59,7 +59,6 @@ initposParams.radius_arena = radius_arena;
 % In the context of the fly, this could be ~half the body length (to
 % account for the difference in body vs head position
 sensingdist = 1;
-ifdiffCWvsAntiCW = false; % whether we have different statistics for CW vs antiCW turns
 
 % technical simulation parameters:
 maxdist = 4e4; % maximum distance travelled before simulation stops
